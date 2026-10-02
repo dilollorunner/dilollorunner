@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#12121a">
+<title>DI LOLLO RUNNER</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🚬</text></svg>">
+<style>
+  :root{
+    --wood:#a9713c; --wood-d:#7d4f26; --tuca:#7cc63f; --tuca-d:#4f8f21;
+    --sun:#ffb347; --hot:#ff4d4d; --ink:#12121a; --paper:#fdf6e3;
+    --disp: 'Arial Black','Arial Bold',Impact,'Haettenschweiler',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b0b12;color:#fff;
+    font-family:'Trebuchet MS','Segoe UI',system-ui,sans-serif; overscroll-behavior:none;}
+  canvas{display:block; width:100%;height:100%; touch-action:none;}
+
+  /* ---------------- layers ---------------- */
+  #stage{position:fixed;inset:0;}
+  .layer{position:fixed;inset:0;pointer-events:none;user-select:none;}
+  #ui{pointer-events:none}
+  .clickable{pointer-events:auto;cursor:pointer}
+
+  /* ---------------- HUD ---------------- */
+  #hud{opacity:0;transition:opacity .35s}
+  #hud.on{opacity:1}
+  /* oculta el retrovisor en pantallas muy bajas */
+  @media (max-height:420px){ #mirrorFrame,#mirrorLabel{display:none} }
+
+  .panel{
+    background:linear-gradient(180deg,rgba(12,10,22,.86),rgba(12,10,22,.62));
+    border:2px solid rgba(255,255,255,.14);
+    border-radius:14px;
+    box-shadow:0 8px 24px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12);
+    backdrop-filter:blur(6px);
+  }
+
+  #scoreBox{position:absolute;left:14px;top:14px;padding:8px 14px 10px;min-width:186px}
+  #score{font-family:var(--disp);font-size:34px;line-height:1;letter-spacing:.5px;
+    color:#fff;text-shadow:0 3px 0 #000,0 0 18px rgba(255,179,71,.55)}
+  #scoreSub{display:flex;gap:12px;margin-top:6px;font-size:12.5px;font-weight:700;letter-spacing:.4px;color:#ffd9a0}
+  #scoreSub b{color:#fff}
+  .olive{display:inline-block;width:11px;height:14px;border-radius:50%/45%;background:radial-gradient(circle at 35% 30%,#c9f27a,#6aab2c);
+    box-shadow:0 0 0 1.5px #2f5c11 inset, 0 0 8px rgba(124,198,63,.7);vertical-align:-2px}
+  /* cigarrillo: cuerpo blanco + filtro naranja */
+  .cig{display:inline-block;width:17px;height:6px;border-radius:1px;
+    background:linear-gradient(90deg,#f7f4ea 0 76%,#d9761f 76% 100%);
+    box-shadow:0 0 0 1px rgba(0,0,0,.35) inset, 0 1px 2px rgba(0,0,0,.5);vertical-align:0}
+
+  /* retrovisor (mirror render lives under this frame) */
+  #mirrorFrame{position:absolute;left:50%;top:12px;transform:translateX(-50%);
+    width:230px;height:92px;border-radius:12px;border:3px solid rgba(255,255,255,.5);
+    box-shadow:0 0 0 4px rgba(0,0,0,.45), inset 0 0 22px rgba(0,0,0,.75), 0 6px 18px rgba(0,0,0,.5);
+    background:transparent}
+  #mirrorFrame:before{content:"";position:absolute;inset:-3px;border-radius:12px;
+    background:linear-gradient(115deg,rgba(255,255,255,.22),transparent 45%);pointer-events:none}
+  #mirrorLabel{position:absolute;left:50%;top:106px;transform:translateX(-50%);font:700 9.5px/1 var(--disp);
+    letter-spacing:2.4px;color:rgba(255,255,255,.5);text-shadow:0 2px 3px #000}
+
+  #btnRow{position:absolute;right:14px;top:14px;display:flex;gap:8px;align-items:center}
+  /* slider de volumen: solo música */
+  #volBox{position:absolute;right:14px;top:66px;display:flex;align-items:center;gap:9px;
+    padding:9px 13px 9px 11px;border-radius:13px;pointer-events:auto;
+    background:linear-gradient(180deg,rgba(12,10,22,.88),rgba(12,10,22,.66));
+    border:2px solid rgba(255,255,255,.14);box-shadow:0 6px 18px rgba(0,0,0,.42)}
+  #volBox svg{width:16px;height:16px;fill:#ffd9a0;flex:none}
+  #volBox input[type=range]{-webkit-appearance:none;appearance:none;width:110px;height:5px;border-radius:3px;
+    background:linear-gradient(90deg,#ffb347 0%,#ffb347 var(--p,60%),rgba(255,255,255,.16) var(--p,60%));
+    outline:none;cursor:pointer}
+  #volBox input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:#fff;box-shadow:0 0 0 2px #ffb347,0 2px 5px rgba(0,0,0,.5);cursor:grab}
+  #volBox input[type=range]::-moz-range-thumb{width:15px;height:15px;border:none;border-radius:50%;
+    background:#fff;box-shadow:0 0 0 2px #ffb347,0 2px 5px rgba(0,0,0,.5);cursor:grab}
+  #volBox .lbl2{font:700 8.5px/1 var(--disp);letter-spacing:1.4px;color:rgba(255,255,255,.5);flex:none}
+  @media (max-width:560px){ #volBox input[type=range]{width:78px} #volBox{padding:7px 10px} }
+  .sq{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;
+    background:linear-gradient(180deg,rgba(12,10,22,.9),rgba(12,10,22,.65));
+    border:2px solid rgba(255,255,255,.16);box-shadow:0 5px 14px rgba(0,0,0,.4)}
+  .sq:active{transform:translateY(2px)}
+  .sq svg{width:20px;height:20px;fill:#ffd9a0}
+
+  /* chase meter */
+  #chase{position:absolute;left:14px;top:112px;width:214px;padding:9px 10px 10px}
+  .lbl{font:700 10px/1 var(--disp);letter-spacing:1.6px;color:rgba(255,255,255,.6)}
+  #gapBar{position:relative;height:16px;margin-top:5px;border-radius:9px;overflow:hidden;
+    background:linear-gradient(90deg,#3b1630,#5c2140);box-shadow:inset 0 2px 5px rgba(0,0,0,.6)}
+  #gapFill{position:absolute;inset:0;right:auto;width:100%;border-radius:9px;
+    background:linear-gradient(90deg,#ff2e63,#ff7a45);transition:width .12s linear}
+  #gapBar .tungIco{position:absolute;right:2px;top:1px;font-size:12px;line-height:14px}
+  #pityIco{position:absolute;left:2px;top:1px;font-size:12px;line-height:14px;transition:left .12s linear}
+  #gapTxt{display:flex;justify-content:space-between;margin-top:5px;font-size:11px;font-weight:700;color:#ffc7a0}
+  #gapTxt span:last-child{color:#fff}
+
+  #energyBar{position:relative;height:13px;margin-top:6px;border-radius:7px;overflow:hidden;
+    background:#241a0d;box-shadow:inset 0 2px 5px rgba(0,0,0,.65)}
+  #energyFill{position:absolute;inset:0;right:auto;width:100%;border-radius:7px;
+    background:linear-gradient(90deg,#ff9f1c,#ffd166);box-shadow:0 0 14px rgba(255,159,28,.7)}
+  #energyBar.low #energyFill{background:linear-gradient(90deg,#ff2e63,#ff6b6b);animation:pulseBar .45s infinite alternate}
+  @keyframes pulseBar{from{filter:brightness(1)}to{filter:brightness(1.6)}}
+
+  #powerups{position:absolute;left:14px;bottom:16px;display:flex;gap:8px}
+  .chip{display:flex;align-items:center;gap:7px;padding:7px 11px 7px 8px;border-radius:12px;font:700 11px/1 var(--disp);letter-spacing:1px}
+  .chip .ring{position:relative;width:26px;height:26px}
+  .chip .ring svg{position:absolute;inset:0;width:26px;height:26px}
+  .chip .ring .t{position:absolute;inset:0;display:grid;place-items:center;font-size:14px}
+  .chip .bar{width:52px;height:6px;border-radius:4px;background:rgba(0,0,0,.5);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+  .chip .bar i{display:block;height:100%;width:100%;background:#fff;border-radius:4px}
+  .chip.bat{background:linear-gradient(180deg,rgba(255,123,0,.35),rgba(0,0,0,.5));border:2px solid #ff8c42}
+  .chip.turbo{background:linear-gradient(180deg,rgba(0,216,255,.3),rgba(0,0,0,.5));border:2px solid #35d6ff}
+  .chip.magnet{background:linear-gradient(180deg,rgba(255,45,120,.3),rgba(0,0,0,.5));border:2px solid #ff2d78}
+  .chip.silence{background:linear-gradient(180deg,rgba(160,255,90,.28),rgba(0,0,0,.5));border:2px solid #a6ff5a}
+
+  #toast{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);text-align:center;white-space:nowrap}
+  .toastItem{font-family:var(--disp);font-size:24px;letter-spacing:1px;color:#fff;
+    text-shadow:0 3px 0 #000,0 0 20px rgba(255,179,71,.8);animation:toastUp 1.05s ease-out forwards}
+  .toastItem.good{color:#c8ff7a;text-shadow:0 3px 0 #000,0 0 20px rgba(124,198,63,.9)}
+  .toastItem.bad{color:#ff7a7a;text-shadow:0 3px 0 #000,0 0 20px rgba(255,46,99,.9)}
+  @keyframes toastUp{0%{opacity:0;transform:translateY(14px) scale(.7)}
+    18%{opacity:1;transform:translateY(0) scale(1.12)}30%{transform:scale(1)}
+    100%{opacity:0;transform:translateY(-46px) scale(.95)}}
+
+  #warn{position:absolute;inset:0;opacity:0;transition:opacity .3s;
+    background:radial-gradient(ellipse at center,transparent 42%,rgba(255,0,50,.55) 100%)}
+  #warn.on{opacity:1;animation:warnPulse .5s infinite alternate}
+  @keyframes warnPulse{from{opacity:.35}to{opacity:.85}}
+
+  /* touch buttons */
+  #touch{position:absolute;inset:0;display:none}
+  #touch.on{display:block}
+  .tbtn{position:absolute;bottom:18px;width:66px;height:66px;border-radius:50%;
+    background:rgba(10,8,18,.5);border:2px solid rgba(255,255,255,.28);display:grid;place-items:center;
+    font:700 22px/1 var(--disp);color:#ffd9a0;box-shadow:0 6px 16px rgba(0,0,0,.4)}
+  .tbtn:active{background:rgba(255,179,71,.35)}
+  #tL{left:14px}#tR{left:92px}#tU{right:92px}#tD{right:14px}
+
+  /* ---------------- screens ---------------- */
+  .screen{position:fixed;inset:0;display:none;place-items:center;pointer-events:auto;
+    background:radial-gradient(ellipse at 50% 30%,rgba(40,22,60,.72),rgba(6,5,12,.92));
+    backdrop-filter:blur(3px);padding:16px;overflow:auto}
+  .screen.on{display:grid;animation:fadeIn .3s ease-out}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+  .card{width:min(660px,100%);text-align:center;padding:22px 22px 26px;border-radius:22px;
+    background:linear-gradient(180deg,rgba(28,20,44,.95),rgba(14,10,24,.96));
+    border:2px solid rgba(255,255,255,.14);box-shadow:0 24px 60px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.1)}
+  .title{font-family:var(--disp);font-size:clamp(30px,7.4vw,58px);line-height:.92;letter-spacing:-1px;margin:0;
+    background:linear-gradient(180deg,#fff6d6,#ffb347 55%,#ff5e5b);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 4px 0 #2a0f0f) drop-shadow(0 10px 26px rgba(255,94,91,.45))}
+  .subtitle{font-family:var(--disp);font-size:clamp(15px,3.4vw,25px);letter-spacing:5px;margin:6px 0 0;color:#7cc63f;
+    text-shadow:0 3px 0 #12300a}
+  .tagline{margin:14px auto 0;max-width:520px;font-size:14.5px;line-height:1.55;color:#d9d2e8}
+  .tagline b{color:#ffd166}
+
+  .castRow{display:flex;align-items:flex-end;justify-content:center;gap:6px;margin:6px 0 2px}
+  .cast{width:min(150px,42vw)}
+  .cast svg{width:100%;height:auto;display:block;filter:drop-shadow(0 8px 12px rgba(0,0,0,.5))}
+  /* la cara de Di Lollo: foto real recortada en círculo, sobre el cuerpo SVG */
+  .cast{position:relative;padding-top:0}
+  .cast .dlFace{position:absolute;left:50%;top:17%;transform:translate(-50%,-50%);
+    width:44%;aspect-ratio:1;border-radius:50%;overflow:hidden;
+    border:3px solid #1a1a1a;box-shadow:0 6px 14px rgba(0,0,0,.55);z-index:2;background:#222}
+  .cast .dlFace img{width:100%;height:100%;object-fit:cover;object-position:50% 50%;
+    display:block}
+  .castT{font:700 10px/1 var(--disp);letter-spacing:2px;margin-top:4px;color:#9c93b5}
+  .vs{font-family:var(--disp);font-size:26px;color:#ff4d4d;margin-bottom:44px;
+    text-shadow:0 3px 0 #000;animation:vsPulse .8s infinite alternate}
+  @keyframes vsPulse{from{transform:scale(1) rotate(-4deg)}to{transform:scale(1.12) rotate(4deg)}}
+  .bob{animation:bob .32s ease-in-out infinite alternate;transform-origin:50% 100%}
+  @keyframes bob{from{transform:translateY(0)}to{transform:translateY(-7px)}}
+
+  .btn{font-family:var(--disp);font-size:22px;letter-spacing:2px;padding:14px 34px;border:none;border-radius:14px;
+    color:#2a1206;cursor:pointer;background:linear-gradient(180deg,#ffe08a,#ffab2e);
+    box-shadow:0 6px 0 #a3570c, 0 12px 26px rgba(0,0,0,.45);transition:transform .08s, box-shadow .08s}
+  .btn:active{transform:translateY(5px);box-shadow:0 1px 0 #a3570c, 0 6px 14px rgba(0,0,0,.4)}
+  .btn.ghost{background:linear-gradient(180deg,#3a3350,#241f36);color:#ffe9c2;box-shadow:0 6px 0 #120f1c,0 10px 22px rgba(0,0,0,.4)}
+  .btnRow{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:20px}
+
+  .diffs{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap}
+  .diff{flex:1 1 150px;max-width:190px;padding:11px 10px;border-radius:14px;cursor:pointer;text-align:left;
+    background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.12);transition:.15s}
+  .diff:hover{background:rgba(255,255,255,.1)}
+  .diff.sel{border-color:#ffb347;background:rgba(255,179,71,.16);box-shadow:0 0 22px rgba(255,179,71,.25)}
+  .diff b{display:block;font:700 15px/1.2 var(--disp);letter-spacing:1.5px;color:#ffd9a0}
+  .diff span{font-size:11.5px;color:#a89fc0;line-height:1.35}
+
+  .keys{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-top:20px;font-size:11.5px;color:#a89fc0}
+  .kbd{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:8px;background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.14)}
+  .kbd b{font-family:var(--disp);color:#ffd9a0;letter-spacing:.5px;font-size:11px}
+
+  /* game over */
+  #goTitle{font-family:var(--disp);font-size:clamp(26px,6.4vw,46px);line-height:1;margin:0;color:#ff5e5b;
+    text-shadow:0 4px 0 #2a0f0f}
+  #goTitle.win{color:#7cc63f;text-shadow:0 4px 0 #12300a}
+  .stats{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:18px 0 4px}
+  .stat{flex:1 1 120px;padding:12px 8px;border-radius:14px;background:rgba(255,255,255,.06);
+    border:2px solid rgba(255,255,255,.1)}
+  .stat b{display:block;font-family:var(--disp);font-size:26px;color:#fff;line-height:1}
+  .stat span{font-size:10.5px;letter-spacing:1.4px;color:#9c93b5;font-weight:700}
+  .best{margin-top:12px;font:700 12px/1 var(--disp);letter-spacing:2px;color:#ffd166}
+
+  /* ---------- ranking ---------- */
+  .nameRow{display:flex;align-items:center;gap:10px;justify-content:center;margin:18px 0 12px}
+  /* en la pantalla principal: más destacado y ancho */
+  .nameRow.main{flex-wrap:wrap;margin:20px 0 6px;gap:12px}
+  .nameRow.main label{font-size:11px;letter-spacing:2px;color:#ffd9a0}
+  .nameRow.main input{width:230px;padding:13px 14px;font-size:17px;border-color:rgba(255,179,71,.4);
+    box-shadow:0 3px 10px rgba(0,0,0,.35)}
+  .nameRow.main input:focus{border-color:#ffb347;box-shadow:0 0 0 3px rgba(255,179,71,.18),0 3px 10px rgba(0,0,0,.35)}
+  .nameRow .nameHint{font-size:10px;letter-spacing:1px;color:#7e7595}
+  .nameRow.main .nameHint{flex-basis:100%;text-align:center;margin-top:-4px}
+  .nameRow label{font:700 10px/1 var(--disp);letter-spacing:1.6px;color:rgba(255,255,255,.55)}
+  .nameRow input{padding:9px 12px;border-radius:10px;border:2px solid rgba(255,255,255,.16);
+    background:rgba(0,0,0,.35);color:#fff;font:700 14px/1 var(--disp);letter-spacing:1px;
+    width:170px;text-align:center;outline:none}
+  .nameRow input:focus{border-color:#ffb347;box-shadow:0 0 0 3px rgba(255,179,71,.15)}
+
+  .boardList{margin:6px auto 4px;max-width:520px;max-height:44vh;overflow:auto;
+    border-radius:14px;background:rgba(0,0,0,.3);border:2px solid rgba(255,255,255,.1)}
+  .bRow{display:flex;align-items:center;gap:10px;padding:8px 13px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .bRow:last-child{border-bottom:none}
+  .bRow.me{background:linear-gradient(90deg,rgba(255,179,71,.22),rgba(255,179,71,.04))}
+  .bRow .pos{font:700 15px/1 var(--disp);color:#ffd9a0;width:30px;flex:none;text-align:center}
+  .bRow.top1 .pos{color:#ffd166}.bRow.top2 .pos{color:#dfe6e6}.bRow.top3 .pos{color:#d9955a}
+  .bRow .who{flex:1;min-width:0;font:700 13px/1.2 var(--disp);letter-spacing:.5px;color:#fff;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bRow .who small{display:block;font:400 10px/1.3 'Trebuchet MS',sans-serif;color:#9c93b5;letter-spacing:0}
+  .bRow .pts{font:700 15px/1 var(--disp);color:#c8ff7a;flex:none}
+  .bEmpty{padding:26px 14px;text-align:center;color:#8f86a8;font-size:13px}
+  .footNote{margin-top:12px;font-size:11px;color:#7e7595;text-align:center}
+  .footNote b{color:#ffb347}
+
+  /* loading */
+  #load{position:fixed;inset:0;display:grid;place-items:center;background:#0b0b12;z-index:50;text-align:center}
+  #load .t{font-family:var(--disp);font-size:22px;letter-spacing:3px;color:#ffb347}
+  #load .dots{margin-top:10px;font-size:26px;color:#7cc63f;animation:blink .6s infinite alternate}
+  @keyframes blink{from{opacity:.3}to{opacity:1}}
+  @media (max-width:560px){
+    #scoreBox{min-width:150px;padding:6px 10px 8px}#score{font-size:26px}
+    #chase{width:150px;top:96px}#mirrorFrame{width:160px;height:64px}#mirrorLabel{top:78px}
+    #scoreSub{font-size:11px}
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="hud" class="layer">
+  <div id="warn"></div>
+
+  <div id="scoreBox" class="panel">
+    <div id="score">0</div>
+    <div id="scoreSub">
+      <div><span class="olive cig"></span> <b id="tucas">0</b></div>
+      <div><b id="dist">0</b> m</div>
+      <div id="multTxt">x1</div>
+    </div>
+  </div>
+
+  <div id="mirrorFrame"></div>
+  <div id="mirrorLabel">RETROVISOR</div>
+
+  <div id="btnRow">
+    <div class="sq clickable" id="btnSound" title="Silenciar todo">
+      <svg viewBox="0 0 24 24" id="icoSound"><path d="M4 9h4l5-4v14l-5-4H4zm12.5-1.5a5 5 0 010 7M19 5a9 9 0 010 14" stroke="#ffd9a0" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    </div>
+    <div class="sq clickable" id="btnPause" title="Pausa (P)">
+      <svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>
+    </div>
+  </div>
+
+  <div id="volBox" title="Volumen de la música (los efectos nunca se apagan)">
+    <svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a9 9 0 010 12" stroke="#ffd9a0" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    <input type="range" id="volSlider" min="0" max="100" value="60" step="1" aria-label="Volumen de música">
+    <span class="lbl2">MÚSICA</span>
+  </div>
+
+  <div id="chase" class="panel">
+    <div class="lbl">DI LOLLO</div>
+    <div id="gapBar">
+      <div id="gapFill"></div>
+      <div id="pityIco">😈</div>
+      <div class="tungIco">🪵</div>
+    </div>
+    <div id="gapTxt"><span id="gapState">TE PISA LOS TALONES</span><span id="gapMeters">30 m</span></div>
+    <div class="lbl" style="margin-top:8px">HAMBRE</div>
+    <div id="energyBar"><div id="energyFill"></div></div>
+  </div>
+
+  <div id="powerups"></div>
+  <div id="toast"></div>
+
+  <div id="touch">
+    <div class="tbtn clickable" id="tL">◀</div>
+    <div class="tbtn clickable" id="tR">▶</div>
+    <div class="tbtn clickable" id="tU">▲</div>
+    <div class="tbtn clickable" id="tD">▼</div>
+  </div>
+</div>
+
+<!-- ================= TITLE ================= -->
+<div class="screen on" id="scTitle">
+  <div class="card">
+    <h1 class="title">DI LOLLO</h1>
+    <p class="subtitle">RUNNER</p>
+
+    <div class="castRow">
+      <div class="cast">
+        <svg viewBox="0 0 120 150" id="svgTung">
+          <defs>
+            <linearGradient id="woodG" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#8a5a2b"/><stop offset=".35" stop-color="#c98f4e"/>
+              <stop offset=".7" stop-color="#b3783c"/><stop offset="1" stop-color="#7d4f26"/>
+            </linearGradient>
+          </defs>
+          <!-- flag -->
+          <g transform="translate(88,26) rotate(12)">
+            <rect x="0" y="0" width="4" height="26" fill="#5b3a1c"/>
+            <rect x="4" y="0" width="20" height="12" fill="#e63946"/>
+            <rect x="4" y="0" width="20" height="12" fill="none" stroke="#fff" stroke-width="1.5"/>
+            <rect x="4" y="0" width="10" height="12" fill="#fff" opacity=".0"/>
+          </g>
+          <!-- bat -->
+          <g transform="rotate(-24 30 78)">
+            <rect x="24" y="52" width="9" height="30" rx="4" fill="#caa06a"/>
+            <rect x="21" y="34" width="15" height="30" rx="7" fill="#e0c48d"/>
+            <circle cx="28.5" cy="31" r="8" fill="#e0c48d"/>
+          </g>
+          <!-- arms -->
+          <rect x="26" y="52" width="10" height="26" rx="5" fill="#c98f4e"/>
+          <rect x="88" y="56" width="10" height="26" rx="5" fill="#b3783c"/>
+          <!-- feet -->
+          <rect x="44" y="128" width="14" height="14" rx="5" fill="#7d4f26"/>
+          <rect x="70" y="128" width="14" height="14" rx="5" fill="#7d4f26"/>
+          <!-- log body -->
+          <rect x="34" y="16" width="56" height="120" rx="22" fill="url(#woodG)" stroke="#5b3a1c" stroke-width="3"/>
+          <path d="M46 24c-6 30-6 70 0 104M78 24c6 30 6 70 0 104" stroke="#8a5a2b" stroke-width="2.5" fill="none" opacity=".55"/>
+          <ellipse cx="62" cy="16" rx="27" ry="7" fill="#d9a768" stroke="#5b3a1c" stroke-width="3"/>
+          <!-- face -->
+          <ellipse cx="50" cy="56" rx="11" ry="13" fill="#fff"/><ellipse cx="76" cy="56" rx="11" ry="13" fill="#fff"/>
+          <circle cx="51" cy="59" r="5.6" fill="#1b1b1b"/><circle cx="77" cy="59" r="5.6" fill="#1b1b1b"/>
+          <circle cx="53" cy="56.5" r="2" fill="#fff"/><circle cx="79" cy="56.5" r="2" fill="#fff"/>
+          <path d="M40 40c4-4 12-4 15 0M70 40c4-4 12-4 15 0" stroke="#4a2c12" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <rect x="42" y="82" width="42" height="30" rx="10" fill="#2a1410"/>
+          <rect x="46" y="83" width="34" height="9" rx="4" fill="#fff"/>
+          <rect x="62" y="83" width="3" height="9" fill="#2a1410"/>
+          <rect x="48" y="102" width="30" height="7" rx="3.5" fill="#fff"/>
+          <rect x="54" y="100" width="13" height="10" rx="4" fill="#e2554f"/>
+        </svg>
+        <div class="castT">TÚ</div>
+      </div>
+      <div class="vs">VS</div>
+      <div class="cast">
+        <!-- FOTO de Di Lollo recortada en círculo (img real, no SVG embebido) -->
+          <div class="dlFace">
+            <img src="img/pity-face.jpg" alt="Di Lollo">
+          </div>
+          <svg viewBox="0 0 120 150" id="svgDiLolloBody" aria-hidden="true">
+            <!-- piernas -->
+            <rect x="46" y="112" width="12" height="24" rx="5" fill="#2a2a34"/>
+            <rect x="64" y="112" width="12" height="24" rx="5" fill="#2a2a34"/>
+            <rect x="42" y="132" width="19" height="10" rx="4" fill="#f0ece0"/>
+            <rect x="62" y="132" width="19" height="10" rx="4" fill="#f0ece0"/>
+            <!-- torso negro + franja (con cuello para unir con la foto) -->
+            <rect x="51" y="62" width="18" height="12" fill="#8a5232"/>
+            <rect x="30" y="70" width="60" height="48" rx="9" fill="#1f1f28"/>
+            <rect x="30" y="79" width="60" height="8" fill="#f0e8d0"/>
+            <!-- brazos -->
+            <rect x="12" y="74" width="14" height="34" rx="7" fill="#8a5232"/>
+            <rect x="94" y="74" width="14" height="34" rx="7" fill="#8a5232"/>
+          </svg>
+        <div class="castT">DI LOLLO</div>
+      </div>
+    </div>
+
+    <p class="tagline">
+      Sos <b>Tung Tung Sahur</b> y tenés que sobrevivir en los pasillos de la villa:
+      <b>salteá, deslizate y fumá los cigarrillos del piso</b> para no quedarte sin Coco.
+      Si se te acaba, <b>Di Lollo</b> (Lauti, el Cara Larga) acelera y te atrapa por la espalda.
+      Te va a sacar las zapatillas. Míralo en el retrovisor y no te lejés mucho.
+    </p>
+
+    <div class="diffs" id="diffs"></div>
+
+    <div class="nameRow main">
+      <label for="nameMain">Tu nombre</label>
+      <input id="nameMain" type="text" maxlength="16" placeholder="Jugador" autocomplete="off" spellcheck="false">
+      <span class="nameHint" id="nameHint">se guarda solo</span>
+    </div>
+
+    <div class="btnRow">
+      <button class="btn" id="btnPlay">¡CORRER!</button>
+      <button class="btn ghost" id="btnBoard">🏆 RANKING</button>
+    </div>
+
+    <div class="keys">
+      <span class="kbd"><b>← →</b> carriles</span>
+      <span class="kbd"><b>↑ / ESPACIO</b> saltar</span>
+      <span class="kbd"><b>↓</b> deslizar</span>
+      <span class="kbd"><b>P</b> pausa</span>
+      <span class="kbd"><b>En el celu:</b> desliza el dedo</span>
+    </div>
+  </div>
+</div>
+
+<!-- ================= PAUSE ================= -->
+<div class="screen" id="scPause">
+  <div class="card">
+    <h1 class="title" style="font-size:clamp(28px,6vw,48px)">PAUSA</h1>
+    <p class="tagline">Tung Tung Sahur se está catching breath.</p>
+    <div class="btnRow">
+      <button class="btn" id="btnResume">SEGUIR CORRIENDO</button>
+      <button class="btn ghost" id="btnQuit">SALIR AL MENÚ</button>
+    </div>
+    <div class="keys">
+      <span class="kbd clickable" id="btnMirror"><b>RETROVISOR</b> activado</span>
+    </div>
+  </div>
+</div>
+
+<!-- ================= GAME OVER ================= -->
+<div class="screen" id="scOver">
+  <div class="card">
+    <h1 id="goTitle">¡PITY TE ALCANZÓ!</h1>
+    <p class="tagline" id="goMsg">Te agarró del cuello y te hizo su dance. Tu dignidad se quedó en el camino.</p>
+    <div class="stats">
+      <div class="stat"><b id="stScore">0</b><span>PUNTOS</span></div>
+      <div class="stat"><b id="stDist">0</b><span>METROS</span></div>
+      <div class="stat"><b id="stTucas">0</b><span>TUCAS</span></div>
+    </div>
+    <div class="best" id="stBest">RÉCORD: 0</div>
+    <div class="best" id="stRank" style="color:#7cc63f"></div>
+    <div class="btnRow">
+      <button class="btn" id="btnRetry">¡OTRA VEZ!</button>
+      <button class="btn ghost" id="btnBoard2">🏆 RANKING</button>
+      <button class="btn ghost" id="btnMenu">MENÚ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= RANKING ================= -->
+<div class="screen" id="scBoard">
+  <div class="card">
+    <h1 class="title" style="font-size:clamp(26px,6vw,44px)">RANKING</h1>
+    <p class="tagline" id="boardMsg" style="margin-top:10px">Cargando puntajes…</p>
+
+    <div class="nameRow">
+      <label for="nameInput">Tu nombre</label>
+      <input id="nameInput" type="text" maxlength="16" placeholder="Jugador" autocomplete="off" spellcheck="false">
+    </div>
+
+    <div id="boardList" class="boardList"></div>
+
+    <div class="btnRow">
+      <button class="btn" id="btnBoardOk">VOLVER</button>
+      <button class="btn ghost" id="btnBoardRefresh">ACTUALIZAR</button>
+    </div>
+    <p class="footNote" id="boardNote"></p>
+  </div>
+</div>
+
+<div id="load"><div><div class="t">DI LOLLO RUNNER</div><div class="dots">🪵🚬😈</div></div></div>
+
+<script src="vendor/three.min.js"></script>
+<script src="config.js?v=2"></script>
+<script src="leaderboard.js?v=2"></script>
+<script src="game.js?v=10"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# Sistema
+.DS_Store
+Thumbs.db
+
+# node / editores
+node_modules/
+.vscode/
+.idea/
+*.swp
+
+# NOTA sobre config.js:
+# La key anon/publishable de Supabase está DISEÑADA para ir en el navegador
+# — no es un secreto. Lo que protege los datos es el RLS de la base, que impide
+# escribir sin pasar por la función submit_score.
+#
+# Por eso config.js SÍ se sube: si no, GitHub Pages no lo encuentra y el
+# ranking global queda en modo local.
+#
+# Lo que NUNCA debe estar acá es la service_role key (administrador de la base).
+# Si alguna vez la ponés, regenerala de inmediato.
