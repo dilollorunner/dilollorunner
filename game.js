@@ -2938,12 +2938,13 @@ for (var i = 0; i < 13; i++) {
   var stRank = document.getElementById('stRank');
   function sendScore(sc) {
     if (typeof LB === 'undefined') return;
-    LB.submit(sc, G.dist, G.tucas, G.playTime).then(function (r) {
+    LB.submit(sc, G.dist, G.tucas, G.playTime, G.diff ? G.diff.id : 'normal').then(function (r) {
+      var lvl = DIFFS[r.difficulty || 'normal'] ? DIFFS[r.difficulty || 'normal'].name : 'NORMAL';
       if (r.online && r.rank) {
-        stRank.textContent = 'EN LA TABLA: #' + r.rank;
+        stRank.textContent = 'EN LA TABLA ' + lvl + ': #' + r.rank;
         toast('PUNTAJE GUARDADO — #' + r.rank, 'good');
       } else if (r.rank) {
-        stRank.textContent = 'RÉCORD LOCAL';
+        stRank.textContent = 'RÉCORD LOCAL ' + lvl;
       } else {
         stRank.textContent = '';
         if (r.error) console.info('[ranking] no se pudo guardar online:', r.error);
@@ -3002,13 +3003,41 @@ for (var i = 0; i < 13; i++) {
     var inp = document.getElementById('nameInput');
     if (inp) inp.value = (typeof LB !== 'undefined') ? LB.playerName() : '';
     updateNameHint();
+    // si venís de terminar una partida, abrís el ranking de esa dificultad
+    boardDiff = (G.diff && G.diff.id) || boardDiff;
+    renderBoardTabs();
     loadBoard();
   }
+
+  /* --------- pestañas: un ranking por dificultad --------- */
+  var boardDiff = 'normal';
+  function renderBoardTabs() {
+    var box = document.getElementById('boardTabs');
+    if (!box) return;
+    box.innerHTML = '';
+    Object.keys(DIFFS).forEach(function (k) {
+      var b = document.createElement('button');
+      b.className = 'diffTab' + (k === boardDiff ? ' sel' : '');
+      b.innerHTML = '<b>' + DIFFS[k].name + '</b>' +
+        '<span class="dtMy">tu récord: ' +
+        (typeof LB !== 'undefined' ? LB.localBest(k) : 0) + '</span>';
+      b.onclick = function () {
+        if (boardDiff === k) return;
+        Snd.click();
+        boardDiff = k;
+        renderBoardTabs();
+        loadBoard();
+      };
+      box.appendChild(b);
+    });
+  }
+
   function loadBoard() {
     var list = document.getElementById('boardList');
     var msg = document.getElementById('boardMsg');
     var note = document.getElementById('boardNote');
     if (!list) return;
+    var diff = boardDiff;
     list.innerHTML = '<div class="bEmpty">Cargando…</div>';
     if (msg) msg.textContent = '';
 
@@ -3016,11 +3045,14 @@ for (var i = 0; i < 13; i++) {
       list.innerHTML = '<div class="bEmpty">Ranking no disponible.</div>';
       return;
     }
-    LB.top((window.TTR_CONFIG || {}).TOP_N || 10).then(function (r) {
+    LB.top((window.TTR_CONFIG || {}).TOP_N || 50, diff).then(function (r) {
+      // el usuario puede haber cambiado de pestaña mientras cargaba
+      if (r.difficulty !== boardDiff) return;
+
       var rows = r.list || [];
       if (!rows.length) {
-        list.innerHTML = '<div class="bEmpty">Todavía no hay puntajes. ' +
-          '¡Sé el primero en hacerse famous!</div>';
+        list.innerHTML = '<div class="bEmpty">Todavía no hay puntajes en ' +
+          DIFFS[r.difficulty].name + '.<br>¡Sé el primero en hacerse famous!</div>';
       } else {
         var myId = r.mine || '';
         var myName = LB.playerName();
@@ -3036,12 +3068,12 @@ for (var i = 0; i < 13; i++) {
       }
       if (msg) {
         msg.textContent = r.online
-          ? 'Tabla global en línea'
+          ? 'Tabla global en línea · ' + DIFFS[r.difficulty].name
           : 'Tabla local (no configurada la online todavía)';
       }
       if (note) {
         note.innerHTML = r.online
-          ? 'Se guarda automáticamente al terminar cada partida.'
+          ? 'Se guarda automáticamente al terminar cada partida. Un solo puntaje por jugador y dificultad: si superás tu récord, reemplaza el anterior.'
           : 'Completá <b>config.js</b> con tu URL y anon key de Supabase para activar la tabla global.';
       }
     });

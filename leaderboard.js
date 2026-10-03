@@ -9,6 +9,16 @@
   var LS_NAME = 'dilollorunner.name';
   var LS_ID = 'dilollorunner.pid';
 
+  // difficulties válidas: cada una tiene su propio ranking
+  var DIFFS = ['facil', 'normal', 'malvado'];
+  function normDiff(d) {
+    d = String(d || '').toLowerCase().trim();
+    return DIFFS.indexOf(d) >= 0 ? d : 'normal';
+  }
+  function diffLabel(d) {
+    return { facil: 'TRANQUI', normal: 'NORMAL', malvado: 'MALVADO' }[normDiff(d)];
+  }
+
   // Aceptamos la URL como venga: con o sin /rest/v1 al final.
   var url = (CFG.SUPABASE_URL || '')
     .trim()
@@ -35,16 +45,41 @@
     };
   }
 
-  /* --------------------------------------------------------------- local */
-  function readLocal() {
-    try { return JSON.parse(localStorage.getItem(LS_SCORES) || '[]'); }
-    catch (e) { return []; }
+  /* --------------------------------------------------------------- local
+     Guardamos un solo puntaje por dificultad (el mejor), igual que el
+     servidor: así el ranking local y el global se parecen. */
+  function readAll() {
+    try {
+      var l = JSON.parse(localStorage.getItem(LS_SCORES) || '[]');
+      return Array.isArray(l) ? l : [];
+    } catch (e) { return []; }
   }
-  function writeLocal(list) {
-    try { localStorage.setItem(LS_SCORES, JSON.stringify(list.slice(0, 50))); } catch (e) { }
+  function writeAll(list) {
+    try { localStorage.setItem(LS_SCORES, JSON.stringify(list)); } catch (e) { }
   }
-  function localBest() {
-    var l = readLocal();
+  function readLocal(d) {
+    d = normDiff(d);
+    return readAll().filter(function (s) { return normDiff(s.difficulty) === d; });
+  }
+  // deja sólo el mejor de cada dificultad
+  function collapseLocal() {
+    var best = {};
+    readAll().forEach(function (s) {
+      var d = normDiff(s.difficulty);
+      if (!best[d] || (s.score || 0) > (best[d].score || 0)) best[d] = s;
+    });
+    return best;
+  }
+  function saveLocalBest(d, entry) {
+    var best = collapseLocal();
+    var k = normDiff(d);
+    // sólo reemplaza si el puntaje nuevo es MEJOR: una partida mala nunca
+    // debe pisar el récord que ya tenías
+    if (!best[k] || (entry.score || 0) > (best[k].score || 0)) best[k] = entry;
+    writeAll(Object.keys(best).map(function (x) { return best[x]; }));
+  }
+  function localBest(d) {
+    var l = readLocal(d);
     return l.length ? Math.max.apply(null, l.map(function (s) { return s.score || 0; })) : 0;
   }
 
@@ -86,36 +121,33 @@
   }
 
   /* -------------------------------------------------------------- envío */
-  function submit(score, dist, cigarettes, duration) {
+  function submit(score, dist, cigarettes, duration, difficulty) {
+    var diff = normDiff(difficulty);
     var entry = {
       score: Math.floor(score) || 0,
       dist: Math.floor(dist) || 0,
       cigarettes: Math.floor(cigarettes) || 0,
       duration: Number(duration) || 0,
       name: playerName(),
+      difficulty: diff,
       mine: true
     };
     var legit = looksLegit(entry);
 
-    // siempre guardamos en local
+    // siempre guardamos en local (un solo puntaje por dificultad)
     entry.date = Date.now();
-    var list = readLocal();
-    list.push(entry);
-    list.sort(function (a, b) { return b.score - a.score; });
-    writeLocal(list);
+    saveLocalBest(diff, entry);
 
     if (!enabled) {
       // sin backend configurado: se guarda local y se informa si igual
       // parece tramposo, así se puede ver el chequeo funcionando
       return Promise.resolve({
-        ok: true, local: true, legit: legit,
-        rank: localTop().length ? (localTop().findIndex(function (e) {
-          return e.score === entry.score;
-        }) + 1) : null
+        ok: true, local: true, legit: legit, difficulty: diff,
+        rank: localRank(diff, entry.score)
       });
     }
     if (!legit) {
-      return Promise.resolve({ ok: false, local: true, error: 'puntaje no plausible' });
+      return Promise.resolve({ ok: false, local: true, difficulty: diff, error: 'puntaje no plausible' });
     }
 
     var to = withTimeout(7000);
@@ -128,22 +160,28 @@
         p_score: entry.score,
         p_dist: entry.dist,
         p_cigarettes: entry.cigarettes,
-        p_duration: entry.duration
+        p_duration: entry.duration,
+        p_difficulty: diff,
+        p_player_id: playerId()
       })
     }).then(function (res) {
       to.done();
       if (!res.ok) {
         return res.text().then(function (t) {
           // el servidor devuelve el motivo del rechazo en el cuerpo
-          return { ok: false, local: true, error: extractMsg(t) };
+          return { ok: false, local: true, difficulty: diff, error: extractMsg(t) };
         });
       }
       return res.json().then(function (j) {
-        return { ok: true, online: true, rank: j && j.rank ? j.rank : null };
+        return {
+          ok: true, online: true, difficulty: diff,
+          rank: j && j.rank ? j.rank : null,
+          score: j && j.score != null ? j.score : entry.score
+        };
       });
     }).catch(function () {
       to.done();
-      return { ok: false, local: true, error: 'sin conexión con el servidor' };
+      return { ok: false, local: true, difficulty: diff, error: 'sin conexión con el servidor' };
     });
   }
 
@@ -157,14 +195,16 @@
   }
 
   /* ------------------------------------------------------------- lectura */
-  function top(limit) {
-    var n = Math.min(limit || CFG.TOP_N || 10, 50);
+  function top(limit, difficulty) {
+    var diff = normDiff(difficulty);
+    var n = Math.min(limit || CFG.TOP_N || 50, 50);
 
     if (!enabled) {
-      return Promise.resolve({ online: false, list: localTop(), mine: playerId() });
+      return Promise.resolve({ online: false, difficulty: diff, list: localTop(diff), mine: playerId() });
     }
     var to = withTimeout(7000);
     return fetch(url + '/rest/v1/top_scores?select=rank,name,score,dist,cigarettes,created_at'
+      + '&difficulty=eq.' + encodeURIComponent(diff)
       + '&order=rank.asc&limit=' + n, {
       headers: headers(), signal: to.signal
     }).then(function (res) {
@@ -174,6 +214,7 @@
     }).then(function (rows) {
       return {
         online: true,
+        difficulty: diff,
         mine: playerId(),
         list: (rows || []).map(function (r) {
           return {
@@ -184,17 +225,28 @@
       };
     }).catch(function () {
       to.done();
-      return { online: false, list: localTop(), mine: playerId(), error: 'offline' };
+      return {
+        online: false, difficulty: diff, list: localTop(diff),
+        mine: playerId(), error: 'offline'
+      };
     });
   }
 
-  function localTop() {
-    return readLocal().slice(0, 20).map(function (e, i) {
+  function localTop(d) {
+    var list = readLocal(d).slice().sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
+    return list.slice(0, 50).map(function (e, i) {
       return {
         rank: i + 1, name: e.name || 'Jugador', score: e.score,
         dist: e.dist, cigarettes: e.cigarettes, date: e.date
       };
     });
+  }
+
+  // posición en la tabla local de esa dificultad
+  function localRank(d, score) {
+    var l = localTop(d);
+    var i = l.findIndex(function (e) { return e.score === score; });
+    return i >= 0 ? i + 1 : null;
   }
 
   /* --------------------------------------------------------------- API */
@@ -203,10 +255,14 @@
     submit: submit,
     top: top,
     localBest: localBest,
+    localRank: localRank,
     playerName: playerName,
     setPlayerName: setPlayerName,
     playerId: playerId,
     isOnline: function () { return enabled; },
+    DIFFS: DIFFS,
+    normDiff: normDiff,
+    diffLabel: diffLabel,
     // expuesto para poder probar el anti-cheat a mano:
     // LB.looksLegit({score:999999, dist:100, cigarettes:10, duration:1}) -> false
     looksLegit: looksLegit

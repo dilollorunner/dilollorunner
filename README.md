@@ -117,6 +117,10 @@ Si alguien quiere jugar tu juego con su propia base, copia `config.ejemplo.js` c
 `supabase-schema.sql` y dale *Run*. Crea la tabla, la vista `top_scores` y la función
 `submit_score` (la que valida que el puntaje sea real).
 
+> ¿Ya tenías la versión anterior del SQL? **Corré el archivo nuevo igual.** Es una
+> migración: agrega columnas, deduplica las filas repetidas que había y recrea las
+> funciones. No borra los puntajes que ya tenías.
+
 **3. Copiá las credenciales.** En *Settings → Data API*: el **Project URL** y la **anon
 public key**.
 
@@ -133,12 +137,34 @@ No hay nada más que tocar.
   - limpia el nombre de caracteres raros
 - Devuelve tu posición en el ranking al instante.
 
+### Cómo funciona el ranking
+
+- **Un solo puntaje por jugador y por dificultad.** Guardás un récord, no una lista.
+  Si en una partida sacás menos que tu récord, el ranking **no cambia**: no se te pisa.
+- **Tres tablas separadas**, una por dificultad (TRANQUI / NORMAL / MALVADO), porque un
+  puntaje en TRANQUI no tiene nada que ver con uno en MALVADO.
+- Se muestran los **50 primeros** de cada tabla.
+- La deduplicación es doble: por navegador (`player_id`) y por **dirección IP**.
+  Esto último es para que alguien no pueda subirse N partidas cambiando de nombre.
+
+> **Ojo con la deduplicación por IP:** si varios jugadores comparten conexión
+> (mismo wifi, misma escuela, datos móviles que comparten IP) van a compartir una sola
+> fila — la del mejor puntaje entre todos. Si preferís que solo deduplique por
+> navegador, corré esto en el SQL Editor:
+> ```sql
+> drop index if exists public.leaderboard_unq_ip;
+> ```
+
 ### Probarlo
 
 En el SQL Editor:
 ```sql
-select * from public.submit_score('Prueba', 1234, 300, 40, 30);
-select * from public.top_scores limit 10;
+-- el segundo envío NO debe crear una fila nueva: solo actualiza si es mejor
+select * from public.submit_score('Prueba', 1234, 300, 40, 30, 'normal', 'jugador1');
+select * from public.submit_score('Prueba',  999, 250, 30, 26, 'normal', 'jugador1');
+select count(*) from public.leaderboard;   -- esperado: 1
+
+select * from public.top_scores where difficulty = 'normal' order by rank limit 50;
 ```
 
 ### Si no querés usar Supabase
