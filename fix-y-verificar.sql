@@ -1,74 +1,5 @@
--- =============================================================================
---  DI LOLLO RUNNER — leaderboard en Supabase
---  Pasos: Supabase > SQL Editor > New query > pegá esto > Run
---
---  ESTA ES LA VERSION 2. Si ya tenías la v1 (tabla `leaderboard` con
---  score/name/dist/cigarettes/duration) CORRÉ ESTA IGUAL: migra los datos
---  que ya tengas, no los borra. Es seguro volver a correrla.
---
---  Qué cambia respecto de la v1:
---   · una sola fila por jugador (y por IP) en cada dificultad
---   · columna `difficulty` -> hay un ranking separado por nivel
---   · el ranking va a 50 en vez de 10
--- =============================================================================
-
--- 1) Columnas nuevas ---------------------------------------------------------
-alter table public.leaderboard add column if not exists difficulty  text not null default 'normal';
-alter table public.leaderboard add column if not exists player_id   text;
-alter table public.leaderboard add column if not exists ip_hash     text;
-alter table public.leaderboard add column if not exists updated_at  timestamptz not null default now();
-
--- 2) difficulties válidas ---------------------------------------------------
-alter table public.leaderboard drop constraint if exists difficulty_valida;
-alter table public.leaderboard
-  add constraint difficulty_valida
-  check (difficulty in ('facil', 'normal', 'malvado'));
-
--- 3) Limpieza: la v1 guardaba una fila por partida, así que hay repetidos.
---    Nos quedamos con el mejor puntaje de cada jugador antes de crear los
---    índices únicos (si no, el índice falla por duplicados).
---
---    OJO: las filas de la v1 NO tienen player_id (esa columna la agrega esta
---    misma migración, así que les queda NULL). Por eso hay que agrupar por
---    nombre: es lo único con lo que se puede identificar a un jugador viejo.
-delete from public.leaderboard
-where id in (
-  select id from (
-    select id,
-           row_number() over (
-             partition by difficulty, name
-             order by score desc, created_at asc
-           ) as rn
-    from public.leaderboard
-  ) t where t.rn > 1
-);
-
--- 4) Una sola fila por jugador y por IP, en cada dificultad -----------------
---    partial index: si player_id / ip_hash viene NULL (pruebas), no choca.
-create unique index if not exists leaderboard_unq_jugador
-  on public.leaderboard (difficulty, player_id)
-  where player_id is not null;
-
-create unique index if not exists leaderboard_unq_ip
-  on public.leaderboard (difficulty, ip_hash)
-  where ip_hash is not null;
-
-create index if not exists leaderboard_diff_score_idx
-  on public.leaderboard (difficulty, score desc);
-
--- =============================================================================
---  OJO — la IP
---  Esto deduplica por dirección IP. Si tus amigos juegan desde la misma
---  conexión (mismo wifi, misma escuela, mismo celular con datos moviles que
---  comparten IP) van a compartir UNA sola fila: el mejor puntaje de todos.
---  Si preferís que solo deduplique por navegador, borrá el índice:
---      drop index if exists public.leaderboard_unq_ip;
---  y sacá la parte de ip_hash de la función de abajo.
--- =============================================================================
-
--- 5) Función de envío: valida, deduplica y guarda ---------------------------
---    Hay que dropear la v1 porque cambió la firma (agrega parámetros).
-drop function if exists public.submit_score(text, integer, integer, integer, real);
+-- Arregla la posición que devuelve submit_score (solo esto, no borra nada)
+drop function if exists public.submit_score(text, integer, integer, integer, real, text, text);
 
 create or replace function public.submit_score(
   p_name        text,
@@ -256,3 +187,11 @@ grant select on public.top_scores to anon, authenticated;
 --
 --  select * from public.top_scores where difficulty = 'normal' order by rank limit 50;
 -- =============================================================================
+-- =========================================================================
+--  AUTORIZACIÓN: corré esto abajo. Si 'score' viene con número (y no null)
+--  el arreglo quedó aplicado. Si viene null, avisame y lo vemos.
+-- =========================================================================
+select * from public.submit_score('ZZCheck', 3000, 350, 45, 32, 'normal', 'zzcheck01');
+select * from public.submit_score('ZZCheck', 9000, 600, 70, 45, 'normal', 'zzcheck01');
+select '--- fila guardada ---' as info;
+select difficulty, score from public.leaderboard where name = 'ZZCheck';
